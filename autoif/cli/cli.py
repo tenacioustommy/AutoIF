@@ -10,41 +10,47 @@ def parse_args():
     )
     
     # 基础配置
-    parser.add_argument("-n", "--seed_num", 
+    parser.add_argument("-n", "--seed-num", 
                        type=int, default=10,
                        help="种子指令重复次数")
     parser.add_argument("--model", 
                        type=str, default="Qwen2.5-72B-Instruct",
                        help="使用的模型名称")
-    parser.add_argument("--api_key", 
+    parser.add_argument("--api-key", 
                        type=str, default="EMPTY",
                        help="API认证密钥")
-    parser.add_argument("--base_url", 
+    parser.add_argument("--base-url", 
                        type=str, default="http://localhost:8000/v1",
                        help="API服务地址")
     
     # 性能配置
-    parser.add_argument("--batch_size", 
+    parser.add_argument("--batch-size", 
                        type=int, default=256,
                        help="批处理大小")
-    parser.add_argument("--process_num", 
+    parser.add_argument("--process-num", 
                        type=int, default=16,
                        help="进程数量")
     
     # 流程控制
-    parser.add_argument("--start_step",
+    parser.add_argument("--start-step",
                        type=int, default=None,
                        choices=range(1, 9),
                        help="起始步骤 (1-8)")
-    parser.add_argument("--end_step",
+    parser.add_argument("--end-step",
                        type=int, default=None,
                        choices=range(1, 9),
                        help="结束步骤 (1-8)")
     
     # 输出配置
-    parser.add_argument("--output_dir",
+    parser.add_argument("--output-dir",
                        type=str, default="./output",
                        help="输出目录路径")
+    parser.add_argument("--cache-dir",
+                       type=str, default=".cache",
+                       help="缓存目录路径")
+    parser.add_argument("--resume",
+                       type=bool, default=True,
+                       help="是否从缓存中恢复")
     
     return parser.parse_args()
 
@@ -57,8 +63,9 @@ def ensure_output_dir(output_dir: str) -> None:
 def main():
     args = parse_args()
     
-    # 确保输出目录存在
+    # 确保输出目录和缓存目录存在
     ensure_output_dir(args.output_dir)
+    ensure_output_dir(args.cache_dir)
     
     # 创建AutoIF实例
     autoif = AutoIF(
@@ -67,7 +74,9 @@ def main():
         api_key=args.api_key,
         base_url=args.base_url,
         process_num=args.process_num,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        cache_dir=args.cache_dir,
+        resume=args.resume
     )
     
     try:

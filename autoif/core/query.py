@@ -17,6 +17,7 @@ from autoif.utils import (
     contains_chinese, 
     with_timeout
 )
+import os
 
 class QueryMixin(Generic[T]):
     def __init__(self: T):
@@ -26,7 +27,7 @@ class QueryMixin(Generic[T]):
         print("开始拼接ShareGPT查询")
         
         # 读取过滤后的结果
-        filter_results = load_jsonl("./output/back_trans_filter.jsonl")
+        filter_results = load_jsonl(os.path.join(self.output_dir, "backtranslator_filter.jsonl"))
         
         # 读取并处理ShareGPT数据
         sft_data = load_jsonl("/cpfs01/user/huangzihan/AutoIF/sample_data/void_condor.jsonl")
@@ -54,15 +55,15 @@ class QueryMixin(Generic[T]):
         print(f"开始生成回复，共 {len(inputs)} 个查询")
         
         # 批量处理生成回复
-        results = await self.batch_process_async(
+        await self.batch_process_async(
             messages=[self.client.build_messages(item['prompt']) for item in inputs],
             total=len(inputs),
             process_funcs=[partial(process_result, item=item) for item in inputs],
             n=4  # 每个query生成4个回复
         )
         
-        print(f"生成完成，共 {len(results)} 个结果")
-        save_jsonl(results, "./output/query_rft.jsonl")
+        print(f"生成完成，共 {len(self._current_cache)} 个结果")
+        save_jsonl(list(self._current_cache.values()), os.path.join(self.output_dir, "sharegpt_query.jsonl"))
     
     @staticmethod
     @with_timeout
@@ -108,7 +109,7 @@ class QueryMixin(Generic[T]):
     
     async def query_verification(self: T):
         print("开始查询验证")
-        results = load_jsonl("./output/query_rft.jsonl")
+        results = load_jsonl(os.path.join(self.output_dir, "sharegpt_query.jsonl"))
         all_samples = []
         
         # 使用进程池处理结果
@@ -136,7 +137,11 @@ class QueryMixin(Generic[T]):
         # 去重
         all_samples = list(map(json.loads, set(map(json.dumps, all_samples))))
         print(f"去重后样本数: {len(all_samples)}")
-
+        save_jsonl(all_samples, os.path.join(self.output_dir, "query_verification.jsonl"))
+    
+    
+    async def score_quality(self: T):
+        all_samples = load_jsonl(os.path.join(self.output_dir, "query_verification.jsonl"))
         # 构建评分prompt
         prompt_template = """You are an expert that is good at judging whether a response is following the instruction and query.
         [Instruction] {instruction}
@@ -155,8 +160,6 @@ class QueryMixin(Generic[T]):
                 response=sample['response']
             )
 
-        save_jsonl(all_samples, "./output/query_need_quality_score.jsonl")
-
         def process_score_result(result: List[str], item: Dict) -> Dict | None:
             """处理评分结果"""
             score_text = result[0].strip()
@@ -168,20 +171,21 @@ class QueryMixin(Generic[T]):
 
         print("开始生成质量评分")
         # 使用异步批处理进行评分
-        scored_results = await self.batch_process_async(
+        await self.batch_process_async(
             messages=[self.client.build_messages(item['prompt']) for item in all_samples],
             total=len(all_samples),
             process_funcs=[partial(process_score_result, item=item) for item in all_samples],
-            n=1
         )
         
         # 过滤None结果
-        scored_results = [result for result in scored_results if result is not None]
+        scored_results = [result for result in list(self._current_cache.values()) if result is not None]
         print(f"评分完成，共 {len(scored_results)} 个有效结果")
-        save_jsonl(scored_results, "./output/query_rft_score.jsonl")
-        
+        save_jsonl(scored_results, os.path.join(self.output_dir, "score_quality.jsonl"))
+      
+    def score_filter(self: T):
         print("开始查询评分过滤")
         filter_results = []
+        scored_results = load_jsonl(os.path.join(self.output_dir, "score_quality.jsonl"))
         print(f"初始结果数: {len(scored_results)}")
         
         for result in tqdm(scored_results, desc="Filtering results"):
@@ -202,15 +206,15 @@ class QueryMixin(Generic[T]):
             unique_instructions.add(each['instruction'])
         print(f"唯一指令数: {len(unique_instructions)}")
         
-        save_jsonl(filter_results, "./output/query_score_filter.jsonl") 
+        save_jsonl(filter_results, os.path.join(self.output_dir, "score_filter.jsonl")) 
 
-    def construct_sft_data(self: T) -> None:
+    def construct_sft_data(self: T):
         """
         构建SFT训练数据
         将query_score_filter.jsonl转换为标准的对话格式
         """
         print("开始构建SFT数据")
-        data = load_jsonl("./output/query_score_filter.jsonl")
+        data = load_jsonl(os.path.join(self.output_dir, "score_filter.jsonl"))
         
         processed_data = []
         for item in data:
@@ -241,5 +245,5 @@ class QueryMixin(Generic[T]):
             }
             processed_data.append(new_item)
         
-        print(f"生成SFT数据 {len(processed_data)} 条, 保存到 ./output/IF_sft_data.jsonl")
-        save_jsonl(processed_data, "./output/IF_sft_data.jsonl") 
+        print(f"生成SFT数据 {len(processed_data)} 条, 保存到 {os.path.join(self.output_dir, 'sft_data.jsonl')}")
+        save_jsonl(processed_data, os.path.join(self.output_dir, "sft_data.jsonl")) 

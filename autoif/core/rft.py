@@ -9,6 +9,7 @@ from typing import Generic, Dict, List, Tuple, Any, Optional
 from .base import T, BaseAutoIFProtocol
 from autoif.client.api_client import OpenAIClient
 from autoif.utils import with_timeout, save_data, save_jsonl, load_jsonl
+import os
 
 class RFTMixin(Generic[T]):
     """RFT相关功能的Mixin类"""
@@ -43,18 +44,24 @@ class RFTMixin(Generic[T]):
                     instructions.append(instruction)
             return instructions
         
-        augment_instructions_list = await self.batch_process_async(
+        await self.batch_process_async(
             messages=messages,
             total=self.N,
             process_funcs=process_result
         )
+        augment_instructions_list = []
+        for result in self._current_cache.values():
+            if isinstance(result, list):
+                augment_instructions_list.extend(result)
+            else:
+                augment_instructions_list.append(result)
         augment_instructions_set = set(augment_instructions_list)
         print("生成", len(augment_instructions_set))
-        save_data(augment_instructions_set, "./output/augment_instructions.txt")
+        save_data(augment_instructions_set, os.path.join(self.output_dir, "augment_instructions.txt"))
     
     async def verification_funcs_cases_generation(self: T):
         seed_instructions = [each.strip() for each in open("./sample_data/seed_instruction.txt").readlines()]
-        augment_instructions_processed = [each.strip() for each in open("./output/augment_instructions.txt").readlines()]
+        augment_instructions_processed = [each.strip() for each in open(os.path.join(self.output_dir, "augment_instructions.txt")).readlines()]
 
         prompt_template = """You are an expert for writing evaluation functions in Python to evaluate whether a response strictly follows an instruction.
         Here is the instruction: {instruction}
@@ -76,18 +83,21 @@ class RFTMixin(Generic[T]):
             output["gpt-answer"] = [each.strip() for each in result]  
             return output
             
-        outputs = await self.batch_process_async(
+        await self.batch_process_async(
             messages=[self.client.build_messages(output["prompt"]) for output in outputs],
             total=len(outputs),
             process_funcs=[partial(process_result, output) for output in outputs],
             n=8
         )
+        outputs=list(self._current_cache.values())
+            
         print("生成", len(outputs))
-        save_jsonl(outputs, "./output/eval_func_rft.jsonl")
+        save_jsonl(outputs, os.path.join(self.output_dir, "verification_funcs_cases.jsonl"))
+        
         
     @staticmethod
     @with_timeout
-    def process_result(result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def process_result(index: int, result: Dict[str, Any]) -> Optional[Tuple[int, Dict[str, Any]]]:
         """处理和验证生成的函数和测试用例"""
         def is_safe_code(code: str) -> bool:
             """检查代码是否安全"""
@@ -135,7 +145,7 @@ class RFTMixin(Generic[T]):
         test_cases = list(map(json.loads, set(map(json.dumps, test_cases))))
         
         if len(eval_funcs) < 3 or len(test_cases) < 10:
-            return None
+            return None, None
 
         # 过滤和评分测试用例
         filtered_test_cases = []
@@ -151,15 +161,16 @@ class RFTMixin(Generic[T]):
                 scored_funcs.append((func, score))
 
         if not scored_funcs:
-            return None
+            return None, None
 
-        return {
+        return index, {
             "instruction": result['instruction'],
             "eval_func": scored_funcs,
             "cases": filtered_test_cases
         }
 
     @staticmethod
+    @with_timeout(timeout=1)
     def _validate_test_case(func: str, test_case: Tuple[str, bool]) -> bool:
         """验证单个测试用例"""
         local_vars = {}
@@ -174,6 +185,7 @@ class RFTMixin(Generic[T]):
             return False
 
     @staticmethod
+    @with_timeout(timeout=1)
     def _score_function(func: str, test_cases: List[Tuple[str, bool]]) -> float:
         """评分单个函数"""
         local_vars = {}
@@ -196,25 +208,28 @@ class RFTMixin(Generic[T]):
             return 0.0
         
     def cross_validation(self: T):   
-        results = load_jsonl("./output/eval_func_rft.jsonl")
+        results = load_jsonl(os.path.join(self.output_dir, "verification_funcs_cases.jsonl"))
         print(f"total results: {len(results)}")
         print("cross validation for functions and cases")
         
         batch_size = self.process_num * 4096
-        filter_results = []
         
         with self.get_process_pool() as process_pool:
             for i in range(0, len(results), batch_size):
-                batch_results = results[i:i+batch_size]
-                futures = [process_pool.submit(RFTMixin.process_result, result) 
-                          for result in batch_results]
+                result_dict={}
+                futures = []
+                for j in range(i, min(i+batch_size, len(results))):
+                    if j not in self._current_cache:
+                        futures.append(process_pool.submit(RFTMixin.process_result, j, results[j]))
                 
                 for future in tqdm(as_completed(futures), total=len(futures)):
                     try:
-                        result = future.result()
+                        index, result = future.result()
                         if result is not None:
-                            filter_results.append(result)
+                            result_dict[index] = result
                     except Exception as e:
                         print(f"Error processing result: {e}")
-        
-        save_jsonl(filter_results, "./output/cross_validation.jsonl") 
+                self._current_cache.update(result_dict)
+                
+        filter_results = list(self._current_cache.values())
+        save_jsonl(filter_results, os.path.join(self.output_dir, "cross_validation.jsonl")) 

@@ -7,6 +7,7 @@ from typing import Generic
 from .base import T, BaseAutoIFProtocol
 from autoif.client.api_client import OpenAIClient
 from autoif.utils import save_jsonl, load_jsonl
+import os
 
 class BackTranslatorMixin(Generic[T]):
     def __init__(self: T):
@@ -14,7 +15,7 @@ class BackTranslatorMixin(Generic[T]):
     
     async def eval_func_backtranslator(self: T):
         print("开始反向翻译")
-        results = load_jsonl("./output/cross_validation.jsonl")
+        results = load_jsonl(os.path.join(self.output_dir, "cross_validation.jsonl"))
         
         # 构建翻译prompt
         translate_prompt = """Please translate the following instruction into Chinese, and then translate it back to English. Please make sure the back-translation maintains the original meaning but uses different wording.
@@ -36,21 +37,21 @@ class BackTranslatorMixin(Generic[T]):
             return item
         
         print(f"开始处理 {len(results)} 个指令")
-        # 批量处理翻译
-        translated_results = await self.batch_process_async(
+        await self.batch_process_async(
             messages=[self.client.build_messages(translate_prompt.format(instruction=result['instruction'])) 
                      for result in results],
             total=len(results),
-            process_funcs=[partial(process_result, item=result) for result in results],
-            n=1
+            process_funcs=[partial(process_result, item=result) for result in results]
         )
         
+        outputs = list(self._current_cache.values())
+        
         print(f"翻译完成，保存结果")
-        save_jsonl(translated_results, "./output/back_trans.jsonl")
+        save_jsonl(outputs, os.path.join(self.output_dir, "backtranslator.jsonl"))
         
     async def eval_func_backtranslator_filter(self: T):
         print("开始反向验证过滤")
-        data = load_jsonl("./output/back_trans.jsonl")
+        data = load_jsonl(os.path.join(self.output_dir, "backtranslator.jsonl"))
         
         filter_results = []
         filter_count = 0
@@ -79,17 +80,16 @@ class BackTranslatorMixin(Generic[T]):
                        for back_ins in back_instructions[:3]]
             
             # 批量处理NLI判断
-            nli_scores = await self.batch_process_async(
+            await self.batch_process_async(
                 messages=messages,
                 total=len(messages),
                 process_funcs=process_nli_result,
                 n=8  # 每个prompt生成8个回复
             )
             
-            nli_scores = list(nli_scores)
-            line["nli_scores"] = nli_scores
+            line["nli_scores"] = list(self._current_cache.values())
             
-            if "contradiction" in nli_scores:
+            if "contradiction" in line["nli_scores"]:
                 filter_count += 1
                 continue
             
@@ -97,4 +97,4 @@ class BackTranslatorMixin(Generic[T]):
             count += 1
         
         print(f"过滤后剩余: {count}, 过滤掉: {filter_count}")
-        save_jsonl(filter_results, "./output/back_trans_filter.jsonl") 
+        save_jsonl(filter_results, os.path.join(self.output_dir, "backtranslator_filter.jsonl")) 
