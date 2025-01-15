@@ -22,235 +22,127 @@ This is the repository contains core implementations of the **AutoIF**, proposed
 ## :rocket: Data Synthesis of AutoIF
 We divided the AutoIF's data synthesis process into steps and provided 10-20 samples per step to facilitate your reproduction. Please remember to replace them with your own input.
 
-### :wrench: Dependencies
-General Setup Environment:
-- Python 3.9
-- [PyTorch](http://pytorch.org/) (currently tested on version 2.1.2+cu121)
-- [Transformers](http://huggingface.co/transformers/) (version 4.41.2, unlikely to work lower than this version)
+# AutoIF: 自动指令生成和过滤工具
 
+AutoIF 是一个用于自动生成高质量指令并通过执行反馈验证其有效性的工具。它提供了两种使用方式：通过命令行工具或作为 Python 库导入使用。
+
+## 安装
+
+### 安装步骤
+
+1. 克隆仓库：
 ```bash
-cd ./AutoIF/
-pip install -r requirements.txt
+git clone https://github.com/tenacioustommy/AutoIF.git
+cd AutoIF/
 ```
----
 
-## Instruction Augmentation and Verification
-
-Firstly, we hand-write 36 seed instructions：
-![image](https://github.com/dongguanting/AutoIF/assets/60767110/62518bd7-f5d9-4a33-a85f-1327b77e4dcb)
-
-
-
-**Step1: Self-instruct Seed Instructions** 
-
-Concatenate the instruction with the RFT prompt.
-
+2. 安装依赖：
 ```bash
-python 1_RFT.py
+pip install -e .
 ```
 
-Please perform k times RFT with a supervised model (e.g., GPT-4, Qwen2-72B), save as format in seed_instruction.txt.
+## 使用方法
 
+### 方法一：使用命令行工具
 
-**Step2: Verification Funcs and Cases Generation**
-
-Using seed and augmented instructions for generating verification funcs and cases.
-
+1. 准备配置：
 ```bash
-python 2_verification_funcs_cases_generation.py
+python cli.py --seed-num 10 \
+    --model "Qwen2.5-72B-Instruct" \
+    --api-key "YOUR_API_KEY" \
+    --base-url "http://localhost:8000/v1" \
+    --batch-size 256 \
+    --process-num 16 \
+    --output-dir "./output" \
+    --cache-dir ".cache" \
+    --resume True
 ```
 
-Please generate K verification functions and cases for each sample, save it in eval_func_rft.jsonl
+参数说明：
+- `seed-num`: 种子指令重复次数,唯一决定总指令数量
+- `model`: 使用的模型名称
+- `api-key`: API 密钥
+- `base-url`: API 服务地址
+- `batch-size`: 批处理大小
+- `process-num`: 进程数量
+- `output-dir`: 输出目录
+- `cache-dir`: 缓存目录
+- `resume`: 是否从断点继续
 
-
-**Step3: Quality Cross-validation**
-
-Cross-validate the pass rates of verification functions and cases to ensure high-quality instructions.
-
+2. 运行特定步骤：
 ```bash
-python 3_cross_validation.py
+python cli.py --start-step 1 --end-step 3  # 运行步骤1到3
 ```
 
-**Step4 & 5: Back Translation**
+### 方法二：作为 Python 库使用
 
-Please back translate verification funcs to instructions, and then use [mDeBERTa](https://huggingface.co/MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7) for consistency filtering.
+1. 基本用法：
+```python
+from autoif.core import AutoIF
 
-```bash
-python 4_eval_func_backtranslator.py
-python 5_eval_func_backtranslator_filter.py
+# 初始化 AutoIF
+autoif = AutoIF(
+    N=10,                    # 种子指令重复次数
+    model="Qwen2.5-72B-Instruct",  # 模型名称
+    api_key="YOUR_API_KEY",  # API密钥
+    base_url="http://localhost:8000/v1",  # API地址
+    process_num=16,          # 进程数
+    batch_size=256,          # 批处理大小
+    output_dir="./output",   # 输出目录
+    cache_dir=".cache",      # 缓存目录
+    resume=True             # 是否断点续传
+)
+
+# 运行完整流程
+autoif.run()
+
+# 运行特定步骤
+autoif.run(start_step=1, end_step=3)  # 只运行步骤1到3
 ```
 
----
+2. 处理流程说明：
+- 步骤1: RFT生成指令
+- 步骤2: 生成验证函数和测试用例
+- 步骤3: 交叉验证
+- 步骤4: 反向翻译
+- 步骤5: 反向验证过滤
+- 步骤6: 拼接ShareGPT查询
+- 步骤7: 查询验证
+- 步骤8: 评分
+- 步骤9: 过滤
+- 步骤10: 构建SFT数据
 
-## Query Augmentation and Verification
+### 输出文件
 
-**Step1: Query Reforming and Augmentation**
+每个步骤会在 output_dir 目录下生成对应的输出文件：
+- `augment_instructions.txt`: 扩展后的指令
+- `verification_funcs_cases.jsonl`: 验证函数和测试用例
+- `cross_validation.jsonl`: 交叉验证结果
+- `backtranslator.jsonl`: 反向翻译结果
+- `backtranslator_filter.jsonl`: 反向验证过滤结果
+- `sharegpt_query.jsonl`: ShareGPT查询结果
+- `score_quality.jsonl`: 评分结果
+- `score_filter.jsonl`: 过滤后结果
+- `sft_data.jsonl`: 最终的SFT训练数据
 
-We randomly concat each query with K queries of [
-ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered) and reformat them using our response RFT template:
+### 缓存机制
 
-```bash
-python 6_concat_sharegpt_query.py
-```
+AutoIF 使用异步缓存机制提高性能：
+- 定时将内存中的数据写入磁盘（默认5秒）
+- 支持断点续传
+- 自动清理已完成步骤的缓存
 
-Please use supervision model to generate k responses for each query.
+### ⚠️ 重要提醒
 
+1. 关于 resume 参数：
+   - 当 `resume=False` 时，会删除所有之前的缓存数据
 
-**Step2: Instruction-following Verification**
-
-Cross-validate the pass rate of verification functions and augmented responses to obtain high-quality queries.
-
-```bash
-python 7_query_vertification.py
-```
-
-In this step, we also concatenate each sample with a consistency scoring prompt. Please score them using the supervision model.
-
-
-**Step3: Query Quality Verification**
-
-Finally, we fliter out the sample with score > 8 and save it into [LlaMA-Factory](https://github.com/hiyouga/LLaMA-Factory)'s SFT data format.
-
-```bash
-python 8_query_score_filiter.py
-python 9_sft_data_construction.py
-```
-
----
-
-## ⚡ DPO Data Construction
-
-
-
-![image](https://github.com/dongguanting/AutoIF/assets/60767110/89e99b23-d7b4-4691-8dd0-3dcb14896ec9)
+2. 关于输出目录：
+   - 如果使用相同的 `output_dir`，新的结果会覆盖之前的文件
+   - 建议每次运行时使用不同的输出目录，或备份重要结果
 
 
-:sparkles:Tips:
-In our paper, DPO includes two settings, the following are their differences:
-- **Offline DPO:** the reponses are obtained from your SFT data generated by supervision model.
-- **Online DPO:** the reponses are obtained from your response generated by your base model during each training iteration.
+## 许可证
 
-Please process your SFT data using the eval functions generated in the previous step, and format the results as dpo_query_eval_score_results.jsonl.
-
-
-**Step1: Verification Funcs Scoring**
-
-We use verfy the pass rate of each response by using corresponding verfication funcs.
-
-```bash
-python 1_dpo_rft_wash.py
-```
-
-**Step1: Data selection**
-
-We construct DPO pairs with postive samples (Acc>=0.5) and nagative samples (Acc=0).
-
-```bash
-python 2_dpo_data_query_construct.py
-```
-
-After construction you need to process as the DPO data format in [LlaMA-Factory](https://github.com/hiyouga/LLaMA-Factory).
-
----
-
-## 🎯 Training
-
-We use the version of [LlaMA-Factory v0.6.3](https://github.com/hiyouga/LLaMA-Factory/releases/tag/v0.6.3). Thanks for their excellent work.
-
-:sparkles:Tips:
-the difference between our two setups:
-- **Strong-to-Weak Distillation:** we use powerful model as supervision model (e.g., GPT-4, Qwen2-72B, Llama3-70B), and weak model (e.g., Qwen2-7B, Llama3-8B) as base model.
-- **Self-Alignment:** we use the same model (e.g., Qwen2-72B, Llama3-70B) as supervision and base model.
-
-
-(1) SFT Training:
-
-```bash
-deepspeed --num_gpus=8 train_bash.py \
-        --deepspeed $deepspeed_zero3_config_path \
-        --stage sft \
-        --do_train \
-        --use_fast_tokenizer \
-        --flash_attn \
-        --adam_beta1 0.9 \
-        --adam_beta2 0.95 \
-        --model_name_or_path $MODEL_PATH \
-        --dataset $dataset \
-        --template $Template \
-        --finetuning_type full \
-        --output_dir $OUTPUT_PATH \
-        --overwrite_cache \
-        --overwrite_output_dir \
-        --warmup_steps 20 \
-        --weight_decay 0.1 \
-        --per_device_train_batch_size 4 \
-        --gradient_accumulation_steps 4 \
-        --ddp_timeout 9000 \
-        --learning_rate 7e-6 \
-        --lr_scheduler_type "linear" \
-        --logging_steps 1 \
-        --cutoff_len 8192 \
-        --save_steps 200 \
-        --num_train_epochs 3.0 \
-        --plot_loss \
-        --bf16 
-```
-
-(2) DPO Training:
-
-```bash
-deepspeed --num_gpus 8 train_bash.py \
-        --deepspeed $deepspeed_zero3_config_path \
-        --stage dpo \
-        --do_train \
-        --model_name_or_path $MODEL_PATH \
-        --dataset $dataset \
-        --dataset_dir $DATA_PATH \
-        --template $Template \
-        --finetuning_type full \
-        --output_dir $OUTPUT_PATH \
-        --overwrite_cache \
-        --overwrite_output_dir \
-        --cutoff_len 4096 \
-        --preprocessing_num_workers 1 \
-        --per_device_train_batch_size 1 \
-        --gradient_accumulation_steps 2 \
-        --lr_scheduler_type cosine \
-        --logging_steps 10 \
-        --warmup_ratio 0.1 \
-        --save_steps 1000 \
-        --learning_rate 5e-6 \
-        --num_train_epochs 2.0 \
-        --max_samples 200000 \
-        --ddp_timeout 180000000 \
-        --plot_loss \
-        --fp16
-```
-For the implementations details between training 7B and 70B models, please refer to our paper.
-
----
-
-## :mag_right: Overall Results
-
-
-![image](https://github.com/dongguanting/AutoIF/assets/60767110/6cffd39b-3d34-42ce-9739-79bd0c23208f)
-
-
----
-
-
-## Citation
-
-If you find this work helpful for your research, please kindly cite it.
-
-
-```bibtex
-@article{dong2024self,
-  title={Self-play with Execution Feedback: Improving Instruction-following Capabilities of Large Language Models},
-  author={Dong, Guanting and Lu, Keming and Li, Chengpeng and Xia, Tingyu and Yu, Bowen and Zhou, Chang and Zhou, Jingren},
-  journal={arXiv preprint arXiv:2406.13542},
-  year={2024}
-}
-```
-
+本项目采用 MIT 许可证。
 
