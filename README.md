@@ -48,14 +48,12 @@ pip install -e .
 1. 准备配置：
 ```bash
 python cli.py --seed-num 10 \
+    --seed-dir "./sample_data" \
     --model "Qwen2.5-72B-Instruct" \
-    --api-key "YOUR_API_KEY" \
     --base-url "http://localhost:8000/v1" \
     --batch-size 256 \
     --process-num 16 \
-    --output-dir "./output" \
-    --cache-dir ".cache" \
-    --resume True
+    --output-dir "./output"
 ```
 
 参数说明：
