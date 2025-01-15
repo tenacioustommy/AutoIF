@@ -32,7 +32,7 @@ AutoIF 是一个用于自动生成高质量指令并通过执行反馈验证其�
 
 1. 克隆仓库：
 ```bash
-git clone https://github.com/tenacioustommy/AutoIF.git
+git clone https://gitlab.pjlab.org.cn/huangzihan/autoif.git
 cd AutoIF/
 ```
 
@@ -63,11 +63,12 @@ python cli.py --seed-num 10 \
 - `model`: 使用的模型名称
 - `api-key`: API 密钥
 - `base-url`: API 服务地址
+- `seed-dir`: 参考文件目录路径，默认为 "./sample_data"
 - `batch-size`: 批处理大小
 - `process-num`: 进程数量
 - `output-dir`: 输出目录
 - `cache-dir`: 缓存目录
-- `resume`: 是否从断点继续
+- `no-resume`: 是否不从继续
 
 2. 运行特定步骤：
 ```bash
@@ -88,9 +89,9 @@ autoif = AutoIF(
     base_url="http://localhost:8000/v1",  # API地址
     process_num=16,          # 进程数
     batch_size=256,          # 批处理大小
+    seed_dir="./sample_data",  # 参考文件目录
     output_dir="./output",   # 输出目录
     cache_dir=".cache",      # 缓存目录
-    resume=True             # 是否断点续传
 )
 
 # 运行完整流程
@@ -135,7 +136,7 @@ AutoIF 使用异步缓存机制提高性能：
 ### ⚠️ 重要提醒
 
 1. 关于 resume 参数：
-   - 当 `resume=False` 时，会删除所有之前的缓存数据
+   - 当 `no-resume` 设置时，会删除所有之前的缓存数据
 
 2. 关于输出目录：
    - 如果使用相同的 `output_dir`，新的结果会覆盖之前的文件

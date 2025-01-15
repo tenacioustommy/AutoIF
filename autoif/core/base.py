@@ -8,10 +8,7 @@ from typing import List, Protocol, TypeVar, Any
 from concurrent.futures import ProcessPoolExecutor
 import os
 import shutil
-import threading
-from queue import Queue
-import time
-from autoif.utils import AsyncCache
+from autoif.utils import AsyncCache, md5, ensure_output_dir
 
 class BaseAutoIFProtocol(Protocol):
     batch_size: int
@@ -22,6 +19,8 @@ class BaseAutoIFProtocol(Protocol):
     cache_dir: str
     current_step: int
     output_dir: str
+    seed_dir: str
+    resume: bool
     _current_cache: AsyncCache
     async def batch_process_async(
         self, 
@@ -36,13 +35,15 @@ class BaseAutoIFProtocol(Protocol):
 T = TypeVar('T', bound=BaseAutoIFProtocol)
 
 class BaseAutoIF:
-    def __init__(self, N, model, api_key, base_url, batch_size, process_num, output_dir='./output', cache_dir='.cache', resume=True):
+    def __init__(self, N, model, api_key, base_url, batch_size, process_num, seed_dir, output_dir='./output', cache_dir='.cache', resume=True):
         self.batch_size = batch_size
         self.N = N
+        self.seed_dir = seed_dir
         self.client = OpenAIClient(base_url, api_key, model)
         self.process_num = process_num
         self.start_time = None
-        self.output_dir = output_dir
+        self.output_dir = os.path.join(output_dir, f"{model}-{md5(seed_dir)}")
+        ensure_output_dir(self.output_dir)
         self.cache_dir = cache_dir
         self.resume = resume
         self.current_step = 0

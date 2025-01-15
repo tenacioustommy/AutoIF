@@ -2,7 +2,7 @@ import argparse
 import os
 from typing import Optional
 from autoif.core import AutoIF
-
+from autoif.utils import ensure_output_dir
 def parse_args():
     parser = argparse.ArgumentParser(
         description="AutoIF: 自动指令生成和过滤工具",
@@ -22,8 +22,10 @@ def parse_args():
     parser.add_argument("--base-url", 
                        type=str, default="http://localhost:8000/v1",
                        help="API服务地址")
-    
-    # 性能配置
+    parser.add_argument("--seed-dir",
+                       type=str,
+                       required=True,
+                       help="参考文件目录路径")
     parser.add_argument("--batch-size", 
                        type=int, default=256,
                        help="批处理大小")
@@ -48,17 +50,12 @@ def parse_args():
     parser.add_argument("--cache-dir",
                        type=str, default=".cache",
                        help="缓存目录路径")
-    parser.add_argument("--resume",
-                       type=bool, default=True,
-                       help="是否从缓存中恢复")
+    parser.add_argument("--no-resume",
+                       action="store_true",
+                       help="不从缓存中恢复")
     
     return parser.parse_args()
 
-def ensure_output_dir(output_dir: str) -> None:
-    """确保输出目录存在"""
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"创建输出目录: {output_dir}")
 
 def main():
     args = parse_args()
@@ -66,6 +63,9 @@ def main():
     # 确保输出目录和缓存目录存在
     ensure_output_dir(args.output_dir)
     ensure_output_dir(args.cache_dir)
+    
+    # 确保参考文件目录存在
+    ensure_output_dir(args.seed_dir)
     
     # 创建AutoIF实例
     autoif = AutoIF(
@@ -75,8 +75,10 @@ def main():
         base_url=args.base_url,
         process_num=args.process_num,
         batch_size=args.batch_size,
+        seed_dir=args.seed_dir,
+        output_dir=args.output_dir,
         cache_dir=args.cache_dir,
-        resume=args.resume
+        resume=not args.no_resume
     )
     
     try:

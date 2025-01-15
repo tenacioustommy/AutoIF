@@ -4,13 +4,11 @@ import random
 import copy
 from tqdm import tqdm
 from functools import partial
-import signal
 from concurrent.futures import as_completed
 import json
 import numpy as np
 from typing import Generic, Dict, List
 from .base import T, BaseAutoIFProtocol
-from autoif.client.api_client import OpenAIClient
 from autoif.utils import (
     save_jsonl, 
     load_jsonl, 
@@ -30,7 +28,7 @@ class QueryMixin(Generic[T]):
         filter_results = load_jsonl(os.path.join(self.output_dir, "backtranslator_filter.jsonl"))
         
         # 读取并处理ShareGPT数据
-        sft_data = load_jsonl("/cpfs01/user/huangzihan/AutoIF/sample_data/void_condor.jsonl")
+        sft_data = load_jsonl(self.seed_dir)
         queries = [each['dialogs'][0]['content'] for each in sft_data]
         
         # 只保留长度在20-300之间且不包含中文的问题
@@ -48,10 +46,9 @@ class QueryMixin(Generic[T]):
         
         def process_result(result: List[str], item: Dict) -> Dict:
             """处理单个结果"""
-            return {}
-            # responses = [each.strip() for each in result]
-            # item['gpt-answer'] = responses
-            # return item
+            responses = [each.strip() for each in result]
+            item['gpt-answer'] = responses
+            return item
         
         print(f"开始生成回复，共 {len(inputs)} 个查询")
         

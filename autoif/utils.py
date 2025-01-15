@@ -6,8 +6,17 @@ import re
 from diskcache import Index
 import threading
 from queue import Queue
-
+import hashlib
+import os
 T = TypeVar('T')
+def md5(s: str) -> str:
+    return hashlib.md5(s.encode('utf-8')).hexdigest()
+
+def ensure_output_dir(output_dir: str) -> None:
+    """确保输出目录存在"""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"创建输出目录: {output_dir}")
 
 class AsyncCache(Index):
     """异步缓存类，继承自diskcache.Index，提供定时写入功能"""
