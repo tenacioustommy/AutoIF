@@ -48,9 +48,10 @@ class QueryMixin(Generic[T]):
         
         def process_result(result: List[str], item: Dict) -> Dict:
             """处理单个结果"""
-            responses = [each.strip() for each in result]
-            item['gpt-answer'] = responses
-            return item
+            return {}
+            # responses = [each.strip() for each in result]
+            # item['gpt-answer'] = responses
+            # return item
         
         print(f"开始生成回复，共 {len(inputs)} 个查询")
         
@@ -178,7 +179,10 @@ class QueryMixin(Generic[T]):
         )
         
         # 过滤None结果
-        scored_results = [result for result in list(self._current_cache.values()) if result is not None]
+        scored_results = []
+        for result in list(self._current_cache.values()):
+            if result is not None:
+                scored_results.append(result)
         print(f"评分完成，共 {len(scored_results)} 个有效结果")
         save_jsonl(scored_results, os.path.join(self.output_dir, "score_quality.jsonl"))
       

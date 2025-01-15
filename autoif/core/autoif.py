@@ -76,7 +76,7 @@ class AutoIF(BaseAutoIF, RFTMixin, BackTranslatorMixin, QueryMixin):
                     print(f"\n=== 步骤 {step_num}: {desc} ===")
                     
                     # 创建当前步骤的缓存
-                    self.get_step_cache(step_num)
+                    self.set_step_cache(step_num)
                     
                     try:
                         if asyncio.iscoroutinefunction(func):

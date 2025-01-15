@@ -8,6 +8,11 @@ from typing import List, Protocol, TypeVar, Any
 from concurrent.futures import ProcessPoolExecutor
 import os
 import shutil
+import threading
+from queue import Queue
+import time
+from autoif.utils import AsyncCache
+
 class BaseAutoIFProtocol(Protocol):
     batch_size: int
     N: int
@@ -17,7 +22,7 @@ class BaseAutoIFProtocol(Protocol):
     cache_dir: str
     current_step: int
     output_dir: str
-    _current_cache: Index
+    _current_cache: AsyncCache
     async def batch_process_async(
         self, 
         messages: List[dict] | List[List[dict]], 
@@ -42,50 +47,37 @@ class BaseAutoIF:
         self.resume = resume
         self.current_step = 0
         self._current_cache = None
-        
-    def get_step_cache(self, step: int) -> Index:
+
+    def set_step_cache(self, step: int):
         """获取指定步骤的缓存"""
         cache_path = os.path.join(self.cache_dir, str(step))
         os.makedirs(cache_path, exist_ok=True)
-        self._current_cache = Index(cache_path)
+        self._current_cache = AsyncCache(cache_path)
     
     def clear_current_cache(self) -> None:
         """清除当前步骤的缓存"""
         if self._current_cache is not None:
+            self._current_cache.stop()  # 停止缓存线程
             self._current_cache = None
             cache_path = os.path.join(self.cache_dir, str(self.current_step))
             if os.path.exists(cache_path):
                 shutil.rmtree(cache_path)
     
     async def batch_process_async(self, messages: List | List[List], total, process_funcs, **kwargs):
-        """
-        异步批处理通用函数
-        
-        Args:
-            messages: 要发送的消息
-            total: 需要处理的总数量
-            process_funcs: 处理返回结果的函数或函数列表
-            **kwargs: 传递给create_chat_completions的额外参数
-        
-        Returns:
-            处理结果的列表
-        """
         futures = []
-        
         next_index = 0
         completed_count = 0
         
         pbar = tqdm(total=total, desc="Processing")
         try:
             while completed_count < total:
-                # 创建协程任务列表
                 results = {}
                 while len(futures) < self.batch_size and next_index < total:
-                    # 检查缓存
                     if next_index in self._current_cache:
                         pbar.update(1)
                         next_index += 1
                         continue
+                    
                     msg = messages if isinstance(messages[0], dict) else messages[next_index]
                     process_func = process_funcs[next_index] if isinstance(process_funcs, list) else process_funcs
                     task = asyncio.create_task(
@@ -97,31 +89,30 @@ class BaseAutoIF:
                 if not futures:
                     break
                     
-                # 等待任意一个任务完成
                 done, pending = await asyncio.wait(
                     futures,
                     return_when=asyncio.FIRST_COMPLETED
                 )
                 
                 futures = list(pending)
-                 
-                # 处理完成的任务
+                
                 for task in done:
                     try:
                         index, result = await task
                         if result is not None:
                             results[index] = result
-                            
                     except Exception as e:
                         print(f"任务执行出错: {e}")
                     finally:
                         completed_count += 1
                         pbar.update(1)
-                        
-                self._current_cache.update(results)
+                
+                if results:
+                    self._current_cache.async_update(results)
                 
         finally:
             pbar.close()
+            self._current_cache.stop()
 
     async def _process_single_task(self, message, index, process_func, **kwargs):
         """处理单个任务并保持索引对应关系"""

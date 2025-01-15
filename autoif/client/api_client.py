@@ -111,31 +111,21 @@ class OpenAIClient:
     #         await session.close()
             
     async def create_chat_completions(self, messages: List, n: int = 1, top_p: float = 1, temperature: float = 1, repetition_penalty: float = 1.0, frequency_penalty: float = 0.0, max_tokens: int = 2048) -> List[str]:
-        # try:
         assert isinstance(messages, list), "messages must be a list"
-        stream = await self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             n=n,
             top_p=top_p,
-            stream=True,
+            stream=False,
             temperature=temperature,
             frequency_penalty=frequency_penalty,
             max_tokens=max_tokens,
             extra_body={"repetition_penalty": repetition_penalty}
         )
-        responses = [''] * n
-        async for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
-                responses[chunk.choices[0].index] += chunk.choices[0].delta.content
+        responses = [each.message.content for each in response.choices]
         return responses
             
-        # except asyncio.CancelledError:
-        #     if "stream" in locals():
-        #         await stream.response.aclose()
-        #     return None
-        # except Exception as e:
-        #     print(f"Cancelling request: {e}")
-        #     return None
+    
 
         
